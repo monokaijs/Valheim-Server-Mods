@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>XomNghienRuntimeUpdater</AssemblyName>
+    <RootNamespace>XomNghien.RuntimeUpdater</RootNamespace>
+    <Version>1.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../XomNghien.Bootstrap/XomNghien.Bootstrap.csproj" Private="false" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine" Version="5.6.1" PrivateAssets="all" />
+  </ItemGroup>
+
+  <Target Name="DoNotCopyGameAssemblies" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'UnityEngine'" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'XomNghienBootstrap'" />
+    </ItemGroup>
+  </Target>
+</Project>

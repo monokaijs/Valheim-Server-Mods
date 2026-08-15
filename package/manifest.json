@@ -1,0 +1,9 @@
+{
+  "name": "XomNghienBootstrap",
+  "version_number": "1.1.0",
+  "website_url": "https://xomnghien.com",
+  "description": "Synchronizes managed Valheim mods/configs and automatically restarts dedicated servers when plugin changes require it.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2333"
+  ]
+}

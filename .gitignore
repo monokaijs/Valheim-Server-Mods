@@ -1,0 +1,8 @@
+artifacts/
+.DS_Store
+package/icon.png
+package/BepInEx/patchers/XomNghienBootstrap.dll
+package/BepInEx/plugins/XomNghienBootstrap/XomNghienRuntimeUpdater.dll
+.secrets/
+**/bin/
+**/obj/
