@@ -52,7 +52,7 @@ internal static class PackageInstaller
             if (!path.Contains("/") && Metadata.Contains(path)) continue;
             var route = Route(path, package);
             if (route.Kind == InstallKind.RejectEarlyLoader)
-                throw new InvalidDataException(package.Coordinate + " contains BepInEx core, patcher, or monomod files; install this package through the Xom Nghien launcher");
+                throw new InvalidDataException(package.Coordinate + " contains BepInEx core, patcher, or monomod files and cannot be managed by this bootstrap");
             var root = route.Kind == InstallKind.ConfigDefault ? defaultsRoot : pluginsRoot;
             var normalized = route.RelativePath.Replace('\\', '/');
             var ownershipKey = route.Kind + ":" + normalized;

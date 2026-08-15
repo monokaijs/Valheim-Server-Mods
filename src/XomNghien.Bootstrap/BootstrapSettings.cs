@@ -7,10 +7,9 @@ namespace XomNghien.Bootstrap;
 
 internal sealed class BootstrapSettings
 {
-    public string ApiBaseUrl { get; private set; } = "https://xomnghien.com";
-    public string ServerId { get; private set; } = "1";
-    public string TrustedKeyId { get; private set; } = "xn-bootstrap-1";
+    public string ManifestUrl { get; private set; } = "";
     public int RequestTimeoutSeconds { get; private set; } = 45;
+    public bool HasManifestUrl => ManifestUrl.Length > 0;
 
     public static BootstrapSettings Load(string path)
     {
@@ -26,9 +25,7 @@ internal sealed class BootstrapSettings
             values[line.Substring(0, separator).Trim()] = line.Substring(separator + 1).Trim();
         }
 
-        if (values.TryGetValue("ApiBaseUrl", out var apiBaseUrl)) settings.ApiBaseUrl = apiBaseUrl.TrimEnd('/');
-        if (values.TryGetValue("ServerId", out var serverId)) settings.ServerId = serverId;
-        if (values.TryGetValue("TrustedKeyId", out var keyId)) settings.TrustedKeyId = keyId;
+        if (values.TryGetValue("ManifestUrl", out var manifestUrl)) settings.ManifestUrl = manifestUrl;
         if (values.TryGetValue("RequestTimeoutSeconds", out var timeout)
             && int.TryParse(timeout, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
             settings.RequestTimeoutSeconds = Math.Max(10, Math.Min(120, seconds));
@@ -38,11 +35,8 @@ internal sealed class BootstrapSettings
 
     private void Validate()
     {
-        if (!Uri.TryCreate(ApiBaseUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidDataException("ApiBaseUrl must be an absolute HTTPS URL");
-        if (ServerId.Length == 0 || ServerId.Length > 20 || !long.TryParse(ServerId, out var id) || id < 1)
-            throw new InvalidDataException("ServerId must be a positive integer");
-        if (TrustedKeyId.Length == 0 || TrustedKeyId.Length > 100)
-            throw new InvalidDataException("TrustedKeyId is invalid");
+        if (HasManifestUrl
+            && (!Uri.TryCreate(ManifestUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps))
+            throw new InvalidDataException("ManifestUrl must be an absolute HTTPS URL");
     }
 }

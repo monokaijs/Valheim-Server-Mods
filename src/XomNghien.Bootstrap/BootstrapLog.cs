@@ -19,7 +19,7 @@ internal static class BootstrapLog
     private static void Write(string level, string message)
     {
         var line = $"[{DateTimeOffset.UtcNow:O}] [{level}] {message}";
-        Console.WriteLine("[XomNghienBootstrap] " + line);
+        Console.WriteLine("[ServerModBootstrap] " + line);
         try
         {
             if (_path != null) File.AppendAllText(_path, line + Environment.NewLine);

@@ -1,20 +1,49 @@
-# Xom Nghien Server Mods Bootstrap
+# Universal Valheim Server Mod Bootstrap
 
-This repository builds the one-time Thunderstore package that synchronizes the live Valheim server mod list and managed configs from `xom-nghien-web`.
+This repository builds a single BepInEx/Thunderstore package installed on both Valheim clients and dedicated servers. A server is configured with an arbitrary JSON manifest URL; clients receive that server's active manifest during connection and never configure a server ID or URL.
 
-## Trust setup
+## Manifest service
 
-Generate a signing key once:
+The endpoint returns this plain JSON schema:
 
-```sh
-node scripts/generate-signing-key.mjs
+```json
+{
+  "schemaVersion": 1,
+  "manifestId": "unique-server-or-cluster-id",
+  "revision": "64-character-sha256",
+  "generatedAt": "2026-08-16T00:00:00.000Z",
+  "packages": [],
+  "configs": []
+}
 ```
 
-The private PEM is written to the gitignored `.secrets` directory. Put its base64 value in the web deployment secret `XN_BOOTSTRAP_SIGNING_PRIVATE_KEY_BASE64`. The matching public XML is packaged with the bootstrap and must be committed/published. Do not regenerate the key unless you are intentionally rotating trust and publishing a new bootstrap version.
+For backward compatibility, `serverId` may be used instead of `manifestId`. Package entries contain `coordinate`, `namespace`, `packageName`, `versionNumber`, `downloadUrl`, optional `fileSize`, and `dependencies`. Config entries contain a path relative to `BepInEx/config`, `sha256`, and `contentBase64`.
 
-Apply `packages/db/migrations/025_add_server_managed_configs.sql` in `xom-nghien-web`, then add complete config files from the server's admin management page. Paths are relative to `BepInEx/config`.
+Only HTTPS Thunderstore package URLs are accepted. Packages containing BepInEx `core`, `patchers`, or `monomod` files are rejected.
 
-Managed config contents are public to players by design. Never store server passwords, API keys, private signing material, or other secrets in them.
+## Server configuration
+
+Install the same package on each server, then feed that instance its complete endpoint once:
+
+```ini
+ManifestUrl = https://example.com/manifests/server-a.json
+RequestTimeoutSeconds = 45
+```
+
+This is the only server-specific setting. Clients leave `ManifestUrl` empty and do not edit any configuration.
+
+The server checks the endpoint on startup and every 60 seconds. Package changes are downloaded and staged, the world is saved, and the server quits so Docker (`restart: unless-stopped`/`always`), systemd (`Restart=always`), or a hosting panel can restart it with the new assemblies. Config-only changes are applied live unless `RestartForConfigChanges` is enabled.
+
+## Client connection flow
+
+1. The bootstrap registers an early peer RPC on both sides.
+2. The server relays its last validated manifest when the client connects.
+3. The client validates the manifest and compares its identity and revision.
+4. A changed package set downloads into the cache and is staged without touching loaded DLL files.
+5. The client returns to the menu and sees a restart prompt.
+6. On the next launch, the preloader applies the pending package set before normal plugins load.
+
+Switching between servers works the same way. If their revisions already match, connection continues without a prompt.
 
 ## Build and test
 
@@ -23,19 +52,4 @@ dotnet run --project tests/XomNghien.Bootstrap.Tests/XomNghien.Bootstrap.Tests.c
 ./scripts/package.sh
 ```
 
-The Thunderstore-ready ZIP and SHA-256 file are written to `artifacts/`.
-
-## Runtime behavior
-
-- The manifest is fetched from `/api/launcher/v1/servers/{serverId}/bootstrap` and verified with RSA-SHA256.
-- Exact required packages and their transitive dependencies are installed beneath `BepInEx/plugins/XomNghienManaged`.
-- Package-provided default configs are installed only when absent. Server-managed configs always win.
-- Removed server-managed config paths are removed only when the prior bootstrap state proves ownership.
-- A failed fetch, signature, download, or extraction leaves the last-known-good installation in place.
-- Packages that install `core`, `patchers`, or `monomod` files are rejected; use the existing launcher for those rare packages.
-- Dedicated servers poll the signed manifest every 60 seconds while running.
-- Config-only revisions are applied live. Mods must implement their own config file watcher to observe those values without a restart.
-- Package revisions are installed immediately, followed by a world-save request and a controlled process quit after 60 seconds.
-- The Valheim process must be managed by Docker (`restart: unless-stopped`/`always`), systemd (`Restart=always`), or an equivalent host panel for automatic restart. This is a one-time host setting, not per-update SSH work.
-
-Runtime behavior can be changed in `BepInEx/config/com.xomnghien.servermods.runtime-updater.cfg`. Client processes never poll or auto-restart; r2modman clients synchronize during their normal startup preloader phase.
+The Thunderstore-ready ZIP and SHA-256 file are written to `artifacts/`. Build outputs, binaries copied into `package/`, and artifacts are excluded from Git.

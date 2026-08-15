@@ -2,7 +2,7 @@ artifacts/
 .DS_Store
 package/icon.png
 package/BepInEx/patchers/XomNghienBootstrap.dll
-package/BepInEx/plugins/XomNghienBootstrap/XomNghienRuntimeUpdater.dll
+package/BepInEx/plugins/ServerModBootstrap/XomNghienRuntimeUpdater.dll
 .secrets/
 **/bin/
 **/obj/

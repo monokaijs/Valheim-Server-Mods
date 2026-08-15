@@ -1,15 +1,13 @@
-# Xom Nghien Bootstrap
+# Server Mod Bootstrap
 
-Install this package once with r2modman or Thunderstore Mod Manager. Before normal BepInEx plugins initialize, it downloads the signed live manifest for the selected Xom Nghien server and synchronizes its required mods and centrally managed configuration files.
+Install this package once on every Valheim client and dedicated server. Clients require no configuration.
 
-On a dedicated server it continues polling every 60 seconds. Config changes are written live. When the package set changes, it installs the new files, requests a world save, waits 60 seconds, and quits so the server's process supervisor can restart it. Configure Docker with `restart: unless-stopped` or systemd with `Restart=always`; without a supervisor, automatic quit is not an automatic restart.
+Each dedicated server sets its complete HTTPS `ManifestUrl` in `BepInEx/config/ServerModBootstrap/bootstrap.cfg`. At startup and every 60 seconds, the server downloads and validates that JSON manifest. When a client connects, the server relays its active manifest through an early peer RPC.
 
-Runtime settings are generated at `BepInEx/config/com.xomnghien.servermods.runtime-updater.cfg`. Set `AutoRestartForModChanges = false` to stage changes without quitting, or `RestartForConfigChanges = true` for mods that only read configuration during startup.
+If the client's managed package revision differs, the bootstrap downloads and verifies the exact Thunderstore packages, stages the update, returns the player to the menu, and asks them to restart Valheim. The preloader applies the staged files before BepInEx loads plugins on the next launch. Connecting again then uses the correct mod set.
 
-The bootstrap owns only `BepInEx/plugins/XomNghienManaged` and the exact config paths published by the server. It does not remove personal or unrelated plugins.
+The bootstrap owns only `BepInEx/plugins/XomNghienManaged` and exact config paths declared by the manifest. Personal and unrelated plugins are not removed.
 
-Managed configs are client-visible and must never contain server passwords or other secrets.
+No signing key, account, server ID, or client configuration is required. The dedicated server trusts its configured HTTPS endpoint; clients trust the manifest relayed by the Valheim server they are connecting to. Packages must use HTTPS Thunderstore download URLs.
 
-If you need another Xom Nghien server, edit `BepInEx/config/XomNghienBootstrap/bootstrap.cfg` and change `ServerId`.
-
-Packages containing BepInEx `core`, `patchers`, or `monomod` files must still be installed through the Xom Nghien launcher because they cannot safely become active after preloading has begun.
+Packages containing BepInEx `core`, `patchers`, or `monomod` files are rejected because early-loader components cannot be changed safely by a running process.

@@ -4,19 +4,11 @@ using System.Runtime.Serialization;
 namespace XomNghien.Bootstrap;
 
 [DataContract]
-internal sealed class SignedEnvelope
-{
-    [DataMember(Name = "algorithm", IsRequired = true)] public string Algorithm { get; set; } = "";
-    [DataMember(Name = "keyId", IsRequired = true)] public string KeyId { get; set; } = "";
-    [DataMember(Name = "payload", IsRequired = true)] public string Payload { get; set; } = "";
-    [DataMember(Name = "signature", IsRequired = true)] public string Signature { get; set; } = "";
-}
-
-[DataContract]
 internal sealed class BootstrapManifest
 {
     [DataMember(Name = "schemaVersion", IsRequired = true)] public int SchemaVersion { get; set; }
-    [DataMember(Name = "serverId", IsRequired = true)] public string ServerId { get; set; } = "";
+    [DataMember(Name = "manifestId", EmitDefaultValue = false)] public string ManifestId { get; set; } = "";
+    [DataMember(Name = "serverId", EmitDefaultValue = false)] public string ServerId { get; set; } = "";
     [DataMember(Name = "revision", IsRequired = true)] public string Revision { get; set; } = "";
     [DataMember(Name = "generatedAt", IsRequired = true)] public string GeneratedAt { get; set; } = "";
     [DataMember(Name = "packages", IsRequired = true)] public List<ManifestPackage> Packages { get; set; } = new();
@@ -46,6 +38,7 @@ internal sealed class ManifestConfig
 [DataContract]
 internal sealed class BootstrapState
 {
+    [DataMember(Name = "manifestId", EmitDefaultValue = false)] public string ManifestId { get; set; } = "";
     [DataMember(Name = "revision", IsRequired = true)] public string Revision { get; set; } = "";
     [DataMember(Name = "generatedAt")] public string GeneratedAt { get; set; } = "";
     [DataMember(Name = "packages", IsRequired = true)] public List<string> Packages { get; set; } = new();

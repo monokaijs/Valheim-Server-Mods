@@ -3,18 +3,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using XomNghien.Bootstrap;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("signed envelope verification", VerifySignedEnvelope),
     ("config traversal rejection", RejectConfigTraversal),
     ("safe archive extraction", ExtractSafeArchive),
     ("archive traversal rejection", RejectArchiveTraversal),
     ("early-loader package rejection", RejectEarlyLoaderFiles),
     ("package change detection ignores order and case", DetectPackageChanges),
+    ("Valheim string RPC reflection bridge", VerifyRpcReflectionBridge),
+    ("generic manifest URL settings", VerifyGenericManifestSettings),
 };
 var failed = 0;
 foreach (var test in tests)
@@ -23,23 +22,6 @@ foreach (var test in tests)
     catch (Exception error) { failed++; Console.Error.WriteLine("FAIL " + test.Name + ": " + error); }
 }
 return failed;
-
-static void VerifySignedEnvelope()
-{
-    using var rsa = RSA.Create(2048);
-    var payload = Encoding.UTF8.GetBytes("{\"schemaVersion\":1}");
-    var signature = rsa.SignData(payload, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    var parameters = rsa.ExportParameters(false);
-    var temp = TempDirectory();
-    var keyPath = Path.Combine(temp, "key.xml");
-    File.WriteAllText(keyPath, $"<RSAKeyValue><Modulus>{Convert.ToBase64String(parameters.Modulus!)}</Modulus><Exponent>{Convert.ToBase64String(parameters.Exponent!)}</Exponent></RSAKeyValue>");
-    var verified = SignatureVerifier.Verify(new SignedEnvelope
-    {
-        Algorithm = "RS256", KeyId = "test", Payload = Convert.ToBase64String(payload), Signature = Convert.ToBase64String(signature),
-    }, "test", keyPath);
-    Assert(payload.SequenceEqual(verified), "verified payload changed");
-    Directory.Delete(temp, true);
-}
 
 static void RejectConfigTraversal()
 {
@@ -104,6 +86,35 @@ static void DetectPackageChanges()
         new[] { "Author-One-1.1.0" }), "version change was not detected");
 }
 
+static void VerifyRpcReflectionBridge()
+{
+    var rpc = new MockRpc();
+    RpcReflectionBridge.RegisterString(rpc, "ServerModBootstrap_Manifest_v1", (_, _) => { });
+    Assert(rpc.Name == "ServerModBootstrap_Manifest_v1", "manifest RPC was registered under the wrong name");
+    rpc.Callback?.Invoke(rpc, "received");
+    RpcReflectionBridge.InvokeString(rpc, "ServerModBootstrap_Manifest_v1", "relayed");
+    Assert(rpc.InvokedName == "ServerModBootstrap_Manifest_v1", "manifest RPC was invoked under the wrong name");
+    Assert(rpc.InvokedArguments?.Length == 1 && Equals(rpc.InvokedArguments[0], "relayed"), "manifest RPC payload changed");
+}
+
+static void VerifyGenericManifestSettings()
+{
+    var temp = TempDirectory();
+    var clientPath = Path.Combine(temp, "client.cfg");
+    File.WriteAllText(clientPath, "ManifestUrl =\n");
+    var client = BootstrapSettings.Load(clientPath);
+    Assert(!client.HasManifestUrl, "client should not require a manifest URL");
+
+    var serverPath = Path.Combine(temp, "server.cfg");
+    File.WriteAllText(serverPath, "ManifestUrl = https://mods.example.net/manifests/server-a.json\n");
+    var server = BootstrapSettings.Load(serverPath);
+    Assert(server.HasManifestUrl && server.ManifestUrl == "https://mods.example.net/manifests/server-a.json", "generic manifest URL was not loaded");
+
+    File.WriteAllText(serverPath, "ManifestUrl = http://mods.example.net/unsafe.json\n");
+    AssertThrows<InvalidDataException>(() => BootstrapSettings.Load(serverPath));
+    Directory.Delete(temp, true);
+}
+
 static ManifestPackage Package() => new()
 {
     Coordinate = "Author-GoodMod-1.2.3", Namespace = "Author", PackageName = "GoodMod", VersionNumber = "1.2.3",
@@ -138,4 +149,24 @@ static void AssertThrows<T>(Action action) where T : Exception
     try { action(); }
     catch (T) { return; }
     throw new Exception("Expected " + typeof(T).Name);
+}
+
+sealed class MockRpc
+{
+    public string? Name { get; private set; }
+    public Action<MockRpc, string>? Callback { get; private set; }
+    public string? InvokedName { get; private set; }
+    public object[]? InvokedArguments { get; private set; }
+
+    public void Register<T>(string name, Action<MockRpc, T> callback)
+    {
+        Name = name;
+        Callback = (rpc, value) => callback(rpc, (T)(object)value);
+    }
+
+    public void Invoke(string name, params object[] arguments)
+    {
+        InvokedName = name;
+        InvokedArguments = arguments;
+    }
 }

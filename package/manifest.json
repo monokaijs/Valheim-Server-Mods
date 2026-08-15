@@ -1,8 +1,8 @@
 {
-  "name": "XomNghienBootstrap",
-  "version_number": "1.1.0",
-  "website_url": "https://xomnghien.com",
-  "description": "Synchronizes managed Valheim mods/configs and automatically restarts dedicated servers when plugin changes require it.",
+  "name": "ServerModBootstrap",
+  "version_number": "2.0.0",
+  "website_url": "https://github.com/monokaijs/xn-server-mods",
+  "description": "Receives mod manifests from Valheim servers, stages exact Thunderstore packages, and asks clients to restart when needed.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2333"
   ]
