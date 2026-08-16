@@ -1,3 +1,10 @@
+# 2.1.0
+
+- Added schema v2 config targets for server-only, client-only, and shared configuration files.
+- Server-only configs are removed from the peer relay manifest.
+- Added separate server and client revisions so server-only changes do not interrupt connected clients.
+- Kept schema v1 manifests readable for backward compatibility.
+
 # 2.0.0
 
 - Replaced the hardcoded website and server ID with a generic HTTPS `ManifestUrl` configured only on dedicated servers.

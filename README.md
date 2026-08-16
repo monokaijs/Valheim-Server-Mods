@@ -8,16 +8,17 @@ The endpoint returns this plain JSON schema:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "manifestId": "unique-server-or-cluster-id",
   "revision": "64-character-sha256",
+  "clientRevision": "64-character-sha256",
   "generatedAt": "2026-08-16T00:00:00.000Z",
   "packages": [],
   "configs": []
 }
 ```
 
-For backward compatibility, `serverId` may be used instead of `manifestId`. Package entries contain `coordinate`, `namespace`, `packageName`, `versionNumber`, `downloadUrl`, optional `fileSize`, and `dependencies`. Config entries contain a path relative to `BepInEx/config`, `sha256`, and `contentBase64`.
+For backward compatibility, `serverId` may be used instead of `manifestId`, and schema version 1 remains readable. Package entries contain `coordinate`, `namespace`, `packageName`, `versionNumber`, `downloadUrl`, optional `fileSize`, and `dependencies`. Config entries contain a path relative to `BepInEx/config`, `sha256`, `contentBase64`, and a `target` of `server`, `client`, or `both`. The server applies `server` and `both`; only `client` and `both` are relayed. `revision` represents the server view and `clientRevision` represents the filtered client view.
 
 Only HTTPS Thunderstore package URLs are accepted. Packages containing BepInEx `core`, `patchers`, or `monomod` files are rejected.
 

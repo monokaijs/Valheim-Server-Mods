@@ -48,7 +48,7 @@ public static class BootstrapSynchronizer
             BootstrapLog.Info($"Revision {ShortRevision(previous.Revision)} is already current");
             return SynchronizationResult.Unchanged(previous.Revision);
         }
-        return ApplyManifestLocked(context, previous, manifestBytes);
+        return ApplyManifestLocked(context, previous, manifestBytes, ConfigAudience.Server);
     }
 
     /// <summary>Downloads and stages a manifest relayed by the connected game server.</summary>
@@ -60,7 +60,7 @@ public static class BootstrapSynchronizer
         lock (SynchronizeLock)
         {
             var context = CreateContext();
-            return StageManifestLocked(context, LoadState(context.StatePath), manifestBytes);
+            return StageManifestLocked(context, LoadState(context.StatePath), manifestBytes, ConfigAudience.Client);
         }
     }
 
@@ -77,7 +77,7 @@ public static class BootstrapSynchronizer
             var manifestBytes = DownloadManifest(context.Settings, conditionalRevision);
             return manifestBytes == null
                 ? SynchronizationResult.Unchanged(previous.Revision)
-                : StageManifestLocked(context, previous, manifestBytes);
+                : StageManifestLocked(context, previous, manifestBytes, ConfigAudience.Server);
         }
     }
 
@@ -88,17 +88,32 @@ public static class BootstrapSynchronizer
         if (!context.Settings.HasManifestUrl || !File.Exists(context.LastManifestPath)) return null;
         var info = new FileInfo(context.LastManifestPath);
         if (info.Length > MaximumManifestBytes) throw new InvalidDataException("Manifest exceeds the 8 MiB relay limit");
-        return File.ReadAllText(context.LastManifestPath, Encoding.UTF8);
+        return CreateRelayManifest(File.ReadAllText(context.LastManifestPath, Encoding.UTF8));
+    }
+
+    internal static string CreateRelayManifest(string manifestJson)
+    {
+        var manifest = Json.Read<BootstrapManifest>(Encoding.UTF8.GetBytes(manifestJson));
+        if (manifest.SchemaVersion >= 2)
+        {
+            manifest.Configs = ApplicableConfigs(manifest.Configs, ConfigAudience.Client).ToList();
+            manifest.Revision = manifest.ClientRevision;
+        }
+        var bytes = Json.Write(manifest);
+        if (bytes.Length > MaximumManifestBytes) throw new InvalidDataException("Relayed manifest exceeds the 8 MiB limit");
+        return Encoding.UTF8.GetString(bytes);
     }
 
     private static SynchronizationResult ApplyManifestLocked(
         BootstrapContext context,
         BootstrapState previous,
-        byte[] manifestBytes)
+        byte[] manifestBytes,
+        ConfigAudience audience)
     {
         var manifest = Json.Read<BootstrapManifest>(manifestBytes);
         var manifestId = ManifestIdentity(manifest);
         ValidateManifest(manifest, manifestId, previous);
+        var applicableConfigs = ApplicableConfigs(manifest.Configs, audience).ToList();
 
         if (string.Equals(previous.Revision, manifest.Revision, StringComparison.Ordinal)
             && LocalStateIsHealthy(context.BepInExRoot, previous))
@@ -109,6 +124,19 @@ public static class BootstrapSynchronizer
             WriteLastManifest(context.LastManifestPath, manifestBytes);
             BootstrapLog.Info($"Revision {ShortRevision(manifest.Revision)} is already installed");
             return SynchronizationResult.Unchanged(manifest.Revision);
+        }
+
+        var packagesChanged = PackageSetsDiffer(previous.Packages, manifest.Packages.Select(package => package.Coordinate));
+        var configsChanged = ManagedConfigsDiffer(previous, applicableConfigs);
+        if (!packagesChanged && !configsChanged && LocalStateIsHealthy(context.BepInExRoot, previous))
+        {
+            previous.ManifestId = manifestId;
+            previous.Revision = manifest.Revision;
+            previous.GeneratedAt = manifest.GeneratedAt;
+            Json.WriteFile(context.StatePath, previous);
+            WriteLastManifest(context.LastManifestPath, manifestBytes);
+            BootstrapLog.Info($"Accepted relay-only revision {ShortRevision(manifest.Revision)} without changing local files");
+            return SynchronizationResult.Applied(manifest.Revision, false, false);
         }
 
         var workRoot = Path.Combine(context.StateRoot, "staging-" + Guid.NewGuid().ToString("N"));
@@ -124,14 +152,13 @@ public static class BootstrapSynchronizer
                 var archive = GetPackageArchive(context.Settings, context.StateRoot, package);
                 PackageInstaller.Extract(archive, package, stagedPlugins, stagedDefaults, owners);
             }
-            Apply(context.BepInExRoot, stagedPlugins, stagedDefaults, manifest, manifestId, previous, context.StatePath);
+            Apply(context.BepInExRoot, stagedPlugins, stagedDefaults, manifest, applicableConfigs, manifestId, previous, context.StatePath);
             WriteLastManifest(context.LastManifestPath, manifestBytes);
-            BootstrapLog.Info($"Installed revision {ShortRevision(manifest.Revision)} with {manifest.Packages.Count} packages and {manifest.Configs.Count} managed configs");
-            var packagesChanged = PackageSetsDiffer(previous.Packages, manifest.Packages.Select(package => package.Coordinate));
+            BootstrapLog.Info($"Installed revision {ShortRevision(manifest.Revision)} with {manifest.Packages.Count} packages and {applicableConfigs.Count} managed configs");
             return SynchronizationResult.Applied(
                 manifest.Revision,
                 packagesChanged,
-                ConfigSetsDiffer(previous.ManagedConfigs, manifest.Configs) || !packagesChanged);
+                configsChanged);
         }
         finally
         {
@@ -142,7 +169,8 @@ public static class BootstrapSynchronizer
     private static SynchronizationResult StageManifestLocked(
         BootstrapContext context,
         BootstrapState previous,
-        byte[] manifestBytes)
+        byte[] manifestBytes,
+        ConfigAudience audience)
     {
         var manifest = Json.Read<BootstrapManifest>(manifestBytes);
         var manifestId = ManifestIdentity(manifest);
@@ -158,7 +186,7 @@ public static class BootstrapSynchronizer
 
         var packagesChanged = PackageSetsDiffer(previous.Packages, manifest.Packages.Select(package => package.Coordinate));
         if (!packagesChanged)
-            return ApplyManifestLocked(context, previous, manifestBytes);
+            return ApplyManifestLocked(context, previous, manifestBytes, audience);
 
         var temporary = context.PendingManifestPath + ".new";
         File.WriteAllBytes(temporary, manifestBytes);
@@ -172,7 +200,8 @@ public static class BootstrapSynchronizer
         if (!File.Exists(context.PendingManifestPath)) return;
         BootstrapLog.Info("Applying the pending managed mod revision before plugin loading");
         var manifestBytes = File.ReadAllBytes(context.PendingManifestPath);
-        ApplyManifestLocked(context, LoadState(context.StatePath), manifestBytes);
+        var audience = context.Settings.HasManifestUrl ? ConfigAudience.Server : ConfigAudience.Client;
+        ApplyManifestLocked(context, LoadState(context.StatePath), manifestBytes, audience);
         File.Delete(context.PendingManifestPath);
     }
 
@@ -291,7 +320,7 @@ public static class BootstrapSynchronizer
     private static HttpClient CreateClient(int timeoutSeconds)
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ServerModBootstrap/2.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("ServerModBootstrap/2.1");
         return client;
     }
 
@@ -300,6 +329,7 @@ public static class BootstrapSynchronizer
         string stagedPlugins,
         string stagedDefaults,
         BootstrapManifest manifest,
+        IReadOnlyCollection<ManifestConfig> applicableConfigs,
         string manifestId,
         BootstrapState previous,
         string statePath)
@@ -316,15 +346,15 @@ public static class BootstrapSynchronizer
         {
             Directory.Move(stagedPlugins, managedPlugins);
             ApplyPackageDefaults(bepinexRoot, stagedDefaults);
-            ApplyManagedConfigs(bepinexRoot, manifest.Configs, previous.ManagedConfigs, configBackups);
+            ApplyManagedConfigs(bepinexRoot, applicableConfigs, previous.ManagedConfigs, configBackups);
             Json.WriteFile(statePath, new BootstrapState
             {
                 ManifestId = manifestId,
                 Revision = manifest.Revision,
                 GeneratedAt = manifest.GeneratedAt,
                 Packages = manifest.Packages.Select(package => package.Coordinate).ToList(),
-                ManagedConfigs = manifest.Configs.Select(config => config.Path).ToList(),
-                ManagedConfigHashes = manifest.Configs.ToDictionary(config => config.Path, config => config.Sha256, StringComparer.OrdinalIgnoreCase),
+                ManagedConfigs = applicableConfigs.Select(config => config.Path).ToList(),
+                ManagedConfigHashes = applicableConfigs.ToDictionary(config => config.Path, config => config.Sha256, StringComparer.OrdinalIgnoreCase),
             });
             TryDeleteDirectory(backupPlugins);
         }
@@ -449,9 +479,11 @@ public static class BootstrapSynchronizer
 
     private static void ValidateManifest(BootstrapManifest manifest, string manifestId, BootstrapState previous)
     {
-        if (manifest.SchemaVersion != 1) throw new InvalidDataException("Unsupported bootstrap manifest schema");
+        if (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) throw new InvalidDataException("Unsupported bootstrap manifest schema");
         if (manifestId.Length == 0 || manifestId.Length > 200) throw new InvalidDataException("Bootstrap manifest identity is invalid");
         if (manifest.Revision.Length != 64 || !manifest.Revision.All(IsHex)) throw new InvalidDataException("Bootstrap revision is invalid");
+        if (manifest.SchemaVersion >= 2 && (manifest.ClientRevision.Length != 64 || !manifest.ClientRevision.All(IsHex)))
+            throw new InvalidDataException("Bootstrap client revision is invalid");
         if (!DateTimeOffset.TryParse(manifest.GeneratedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var generatedAt))
             throw new InvalidDataException("Bootstrap manifest timestamp is invalid");
         if (generatedAt > DateTimeOffset.UtcNow.AddMinutes(10)) throw new InvalidDataException("Bootstrap manifest timestamp is in the future");
@@ -465,9 +497,37 @@ public static class BootstrapSynchronizer
         var coordinates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var package in manifest.Packages)
             if (!coordinates.Add(package.Coordinate)) throw new InvalidDataException("Duplicate package " + package.Coordinate);
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var serverPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var clientPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var config in manifest.Configs)
-            if (!paths.Add(config.Path)) throw new InvalidDataException("Duplicate config " + config.Path);
+        {
+            if (manifest.SchemaVersion >= 2 && !IsConfigTarget(config.Target))
+                throw new InvalidDataException("Invalid config target for " + config.Path);
+            if (AppliesTo(config, ConfigAudience.Server) && !serverPaths.Add(config.Path))
+                throw new InvalidDataException("Duplicate server config " + config.Path);
+            if (AppliesTo(config, ConfigAudience.Client) && !clientPaths.Add(config.Path))
+                throw new InvalidDataException("Duplicate client config " + config.Path);
+        }
+    }
+
+    private static IEnumerable<ManifestConfig> ApplicableConfigs(IEnumerable<ManifestConfig> configs, ConfigAudience audience)
+    {
+        foreach (var config in configs)
+            if (AppliesTo(config, audience)) yield return config;
+    }
+
+    private static bool AppliesTo(ManifestConfig config, ConfigAudience audience)
+    {
+        var target = string.IsNullOrWhiteSpace(config.Target) ? "both" : config.Target.Trim().ToLowerInvariant();
+        return target == "both"
+            || (audience == ConfigAudience.Server && target == "server")
+            || (audience == ConfigAudience.Client && target == "client");
+    }
+
+    private static bool IsConfigTarget(string target)
+    {
+        var normalized = string.IsNullOrWhiteSpace(target) ? "both" : target.Trim().ToLowerInvariant();
+        return normalized == "server" || normalized == "client" || normalized == "both";
     }
 
     private static string ManifestIdentity(BootstrapManifest manifest) =>
@@ -509,10 +569,13 @@ public static class BootstrapSynchronizer
             .SetEquals(current);
     }
 
-    private static bool ConfigSetsDiffer(IEnumerable<string> previousPaths, IEnumerable<ManifestConfig> current)
+    private static bool ManagedConfigsDiffer(BootstrapState previous, IReadOnlyCollection<ManifestConfig> current)
     {
-        var previous = new HashSet<string>(previousPaths, StringComparer.OrdinalIgnoreCase);
-        return !previous.SetEquals(current.Select(config => config.Path));
+        if (previous.ManagedConfigHashes == null || previous.ManagedConfigHashes.Count != current.Count) return true;
+        foreach (var config in current)
+            if (!previous.ManagedConfigHashes.TryGetValue(config.Path, out var hash)
+                || !string.Equals(hash, config.Sha256, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
     private static void TryDeleteDirectory(string path)
     {
@@ -545,6 +608,8 @@ public static class BootstrapSynchronizer
         public string PendingManifestPath { get; }
         public BootstrapSettings Settings { get; }
     }
+
+    private enum ConfigAudience { Server, Client }
 }
 
 /// <summary>Describes the effects of one synchronization check.</summary>

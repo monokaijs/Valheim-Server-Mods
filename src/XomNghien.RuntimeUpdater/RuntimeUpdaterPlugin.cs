@@ -16,7 +16,7 @@ public sealed class RuntimeUpdaterPlugin : BaseUnityPlugin
 {
     public const string PluginGuid = "org.servermodbootstrap.runtime-updater";
     public const string PluginName = "Server Mod Bootstrap Runtime Updater";
-    public const string PluginVersion = "2.0.0";
+    public const string PluginVersion = "2.1.0";
     internal static RuntimeUpdaterPlugin? Instance { get; private set; }
 
     private ConfigEntry<bool> _enabled = null!;

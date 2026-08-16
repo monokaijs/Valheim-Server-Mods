@@ -14,6 +14,7 @@ var tests = new (string Name, Action Run)[]
     ("package change detection ignores order and case", DetectPackageChanges),
     ("Valheim string RPC reflection bridge", VerifyRpcReflectionBridge),
     ("generic manifest URL settings", VerifyGenericManifestSettings),
+    ("server-only configs are removed from relayed manifests", FilterServerConfigsFromRelay),
 };
 var failed = 0;
 foreach (var test in tests)
@@ -114,6 +115,33 @@ static void VerifyGenericManifestSettings()
     AssertThrows<InvalidDataException>(() => BootstrapSettings.Load(serverPath));
     Directory.Delete(temp, true);
 }
+
+static void FilterServerConfigsFromRelay()
+{
+    var serverRevision = new string('a', 64);
+    var clientRevision = new string('b', 64);
+    var manifest = "{" +
+        "\"schemaVersion\":2," +
+        "\"manifestId\":\"server-a\"," +
+        "\"revision\":\"" + serverRevision + "\"," +
+        "\"clientRevision\":\"" + clientRevision + "\"," +
+        "\"generatedAt\":\"2026-08-16T00:00:00.000Z\"," +
+        "\"packages\":[]," +
+        "\"configs\":[" +
+        ConfigJson("server.cfg", "server") + "," +
+        ConfigJson("client.cfg", "client") + "," +
+        ConfigJson("shared.cfg", "both") + "]}";
+
+    var relayed = Json.Read<BootstrapManifest>(System.Text.Encoding.UTF8.GetBytes(
+        BootstrapSynchronizer.CreateRelayManifest(manifest)));
+    Assert(relayed.Revision == clientRevision, "relay did not use the client revision");
+    Assert(relayed.Configs.Count == 2, "relay did not filter the expected number of configs");
+    Assert(relayed.Configs.All(config => config.Path != "server.cfg"), "server-only config was relayed");
+}
+
+static string ConfigJson(string path, string target) =>
+    "{\"path\":\"" + path + "\",\"sha256\":\"" + new string('c', 64) +
+    "\",\"contentBase64\":\"dmFsdWU=\",\"target\":\"" + target + "\"}";
 
 static ManifestPackage Package() => new()
 {

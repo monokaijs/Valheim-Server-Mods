@@ -10,6 +10,7 @@ internal sealed class BootstrapManifest
     [DataMember(Name = "manifestId", EmitDefaultValue = false)] public string ManifestId { get; set; } = "";
     [DataMember(Name = "serverId", EmitDefaultValue = false)] public string ServerId { get; set; } = "";
     [DataMember(Name = "revision", IsRequired = true)] public string Revision { get; set; } = "";
+    [DataMember(Name = "clientRevision", EmitDefaultValue = false)] public string ClientRevision { get; set; } = "";
     [DataMember(Name = "generatedAt", IsRequired = true)] public string GeneratedAt { get; set; } = "";
     [DataMember(Name = "packages", IsRequired = true)] public List<ManifestPackage> Packages { get; set; } = new();
     [DataMember(Name = "configs", IsRequired = true)] public List<ManifestConfig> Configs { get; set; } = new();
@@ -33,6 +34,7 @@ internal sealed class ManifestConfig
     [DataMember(Name = "path", IsRequired = true)] public string Path { get; set; } = "";
     [DataMember(Name = "sha256", IsRequired = true)] public string Sha256 { get; set; } = "";
     [DataMember(Name = "contentBase64", IsRequired = true)] public string ContentBase64 { get; set; } = "";
+    [DataMember(Name = "target", EmitDefaultValue = false)] public string Target { get; set; } = "";
 }
 
 [DataContract]
